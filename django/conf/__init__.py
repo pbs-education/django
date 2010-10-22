@@ -10,9 +10,9 @@ import os
 import re
 import time     # Needed for Windows
 try:
-    import thread
+    from threading import local
 except ImportError:
-    import dummy_thread as thread
+    from django.util._threading_local import local
 
 from django.conf import global_settings
 from django.utils.functional import LazyObject
@@ -126,31 +126,22 @@ class UserSettingsHolder(object):
         from the module specified in default_settings (if possible).
         """
         self.__dict__['default_settings'] = default_settings
-        self.__dict__['local_settings'] = {}
 
     def __getattr__(self, attr):
-        thread_ident = thread.get_ident()
-        local_settings = self.__dict__['local_settings']
-        default_settings = self.__dict__['default_settings']
         try:
-            return local_settings[thread_ident][attr]
-        except KeyError:
-            return getattr(default_settings, attr)
+            return getattr(_local_settings, attr)
+        except AttributeError:
+            return getattr(self.__dict__['default_settings'], attr)
 
     def __setattr__(self, attr, val):
-        thread_ident = thread.get_ident()
-        local_settings = self.__dict__['local_settings']
-        default_settings = self.__dict__['default_settings']
-        if thread_ident in local_settings:
-            local_settings[thread_ident][attr] = val
-        else:
-            local_settings[thread_ident] = { attr: val }
+        setattr(_local_settings, attr, val)
 
     def __dir__(self):
-        return self.__dict__.keys() + dir(self.default_settings)
+        return self.__dict__.keys() + dir(self.__dict__['default_settings'])
 
     # For Python < 2.6:
     __members__ = property(lambda self: self.__dir__())
 
-settings = LazySettings()
 
+_local_settings = local()
+settings = LazySettings()
