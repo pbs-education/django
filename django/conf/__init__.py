@@ -9,6 +9,10 @@ a list of all possible variables.
 import os
 import re
 import time     # Needed for Windows
+try:
+    import thread
+except ImportError:
+    import dummy_thread as thread
 
 from django.conf import global_settings
 from django.utils.functional import LazyObject
@@ -37,7 +41,7 @@ class LazySettings(LazyObject):
             # problems with Python's interactive help.
             raise ImportError("Settings cannot be imported, because environment variable %s is undefined." % ENVIRONMENT_VARIABLE)
 
-        self._wrapped = Settings(settings_module)
+        self._wrapped = UserSettingsHolder(Settings(settings_module))
 
     def configure(self, default_settings=global_settings, **options):
         """
@@ -110,7 +114,7 @@ class Settings(object):
 
 class UserSettingsHolder(object):
     """
-    Holder for user configured settings.
+    Settings holder that allows thread-local overrides of defaults.
     """
     # SETTINGS_MODULE doesn't make much sense in the manually configured
     # (standalone) case.
@@ -121,10 +125,26 @@ class UserSettingsHolder(object):
         Requests for configuration variables not in this class are satisfied
         from the module specified in default_settings (if possible).
         """
-        self.default_settings = default_settings
+        self.__dict__['default_settings'] = default_settings
+        self.__dict__['local_settings'] = {}
 
-    def __getattr__(self, name):
-        return getattr(self.default_settings, name)
+    def __getattr__(self, attr):
+        thread_ident = thread.get_ident()
+        local_settings = self.__dict__['local_settings']
+        default_settings = self.__dict__['default_settings']
+        try:
+            return local_settings[thread_ident][attr]
+        except KeyError:
+            return getattr(default_settings, attr)
+
+    def __setattr__(self, attr, val):
+        thread_ident = thread.get_ident()
+        local_settings = self.__dict__['local_settings']
+        default_settings = self.__dict__['default_settings']
+        if thread_ident in local_settings:
+            local_settings[thread_ident][attr] = val
+        else:
+            local_settings[thread_ident] = { attr: val }
 
     def __dir__(self):
         return self.__dict__.keys() + dir(self.default_settings)
