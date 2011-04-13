@@ -10,6 +10,10 @@ import os
 import re
 import time     # Needed for Windows
 import warnings
+try:
+    from threading import local
+except ImportError:
+    from django.util._threading_local import local
 
 from django.conf import global_settings
 from django.utils.functional import LazyObject
@@ -39,7 +43,7 @@ class LazySettings(LazyObject):
             # problems with Python's interactive help.
             raise ImportError("Settings cannot be imported, because environment variable %s is undefined." % ENVIRONMENT_VARIABLE)
 
-        self._wrapped = Settings(settings_module)
+        self._wrapped = UserSettingsHolder(Settings(settings_module))
 
     def configure(self, default_settings=global_settings, **options):
         """
@@ -141,7 +145,7 @@ class Settings(BaseSettings):
 
 class UserSettingsHolder(BaseSettings):
     """
-    Holder for user configured settings.
+    Settings holder that allows thread-local overrides of defaults.
     """
     # SETTINGS_MODULE doesn't make much sense in the manually configured
     # (standalone) case.
@@ -152,16 +156,23 @@ class UserSettingsHolder(BaseSettings):
         Requests for configuration variables not in this class are satisfied
         from the module specified in default_settings (if possible).
         """
-        self.default_settings = default_settings
+        self.__dict__['default_settings'] = default_settings
 
-    def __getattr__(self, name):
-        return getattr(self.default_settings, name)
+    def __getattr__(self, attr):
+        try:
+            return getattr(_local_settings, attr)
+        except AttributeError:
+            return getattr(self.__dict__['default_settings'], attr)
+
+    def __setattr__(self, attr, val):
+        setattr(_local_settings, attr, val)
 
     def __dir__(self):
-        return self.__dict__.keys() + dir(self.default_settings)
+        return self.__dict__.keys() + dir(self.__dict__['default_settings'])
 
     # For Python < 2.6:
     __members__ = property(lambda self: self.__dir__())
 
-settings = LazySettings()
 
+_local_settings = local()
+settings = LazySettings()
