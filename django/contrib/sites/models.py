@@ -34,7 +34,7 @@ class SiteManager(models.Manager):
 
 class Site(models.Model):
 
-    domain = models.CharField(_('domain name'), max_length=100)
+    domain = models.CharField(_('domain name'), max_length=100, unique=True)
     name = models.CharField(_('display name'), max_length=50)
     objects = SiteManager()
 
